@@ -1,11 +1,16 @@
 from flask import Flask, render_template, make_response, redirect, url_for, request, session, jsonify
 
 import random
+import math
 import requests
 from urllib.parse import urlencode
 from config import DefaultConfig
 from datetime import datetime, timedelta
 from flask_cors import CORS
+
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
 CONFIG = DefaultConfig()
 
@@ -29,6 +34,19 @@ def login():
     }
     rme = requests.get('https://api.spotify.com/v1/me', headers=headers)
     user = rme.json()
+    rplaylists = requests.get('https://api.spotify.com/v1/me/playlists', headers=headers)
+    playlists = rplaylists.json()['items']
+    playlist_items = []
+    for playlist in playlists:
+        playlist_items.append({
+            'id': playlist["id"],
+            'name': playlist["name"],
+            'images': playlist["images"],
+            'track_counts': playlist['tracks']['total']
+        })
+
+    user['playlists'] = playlist_items
+
     return jsonify(user)
     # state = request.args.get('state', default=None)
     # storedState = session[stateKey]
@@ -125,34 +143,37 @@ def create_playlist():
     return jsonify(res_tr.json())
 
 
-@app.route('/add_playlist')
-def add_playlist():
-    playlist_id = request.args.get('playlist_id', default=None)
-    access_token = get_service_token()
+@app.route('/cluster_playlist')
+def cluster_playlist():
+    access_token = request.json['access_token']
     headers = {
         'Authorization': 'Bearer ' + access_token
     }
-    rplaylist = requests.get(f'https://api.spotify.com/v1/playlists/{playlist_id}', headers=headers)
-    playlist = rplaylist.json()
-    track_list = get_tracks(playlist["id"], headers, track_list={})
+    track_list = get_tracks(request.json["id"], headers, track_list={})
     track_list = get_track_features(track_list, headers)
+    track_data = list(track_list.values())
 
-    playlist_item = {
-        '_id': playlist["id"],
-        'name': playlist["name"],
-        'owner': "service",
-        'images': playlist['images'],
-        'tracks': list(track_list.values()),
-        'for_train': True
-    }
-
-    if col_playlist.find_one({ "_id": playlist["id"] }):
-        del playlist_item['owner']
-        col_playlist.update_one({ "_id": playlist["id"] }, {'$set':playlist_item})
-    else:   
-        col_playlist.insert_one(playlist_item)
-
+    track_df = pd.DataFrame(track_data)
+    track_df.set_index('id', inplace=True)
+    track_df.drop("name", axis=1, inplace=True)
+    track_df.drop("artist", axis=1, inplace=True)
+    track_count = track_df.shape[0]
+    n_clusters = math.ceil(track_count/40)
+    
+    X = track_df.drop(["name","artist","key","mode","liveness","tempo","time_signature","duration_ms"], axis=1)
+    scaler = StandardScaler()
+    X_std = scaler.fit_transform(X)
+    km = KMeans(n_clusters=n_clusters, random_state=42)
+    km.fit(X_std)
+    track_df['cluster'] = km.labels_
+    playlists = {}
+    for playlist in track_df['cluster'].unique():
+        playlists[playlist] = {
+            'name': 'Cluster '+playlist
+        }
     return 'success'
+
+
 
 def get_tracks(playlist_id, headers, next_url=None, track_list={}):
     if next_url:
