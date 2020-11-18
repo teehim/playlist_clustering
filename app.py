@@ -48,58 +48,6 @@ def login():
     user['playlists'] = playlist_items
 
     return jsonify(user)
-    # state = request.args.get('state', default=None)
-    # storedState = session[stateKey]
-    # print(storedState)
-    # if state == None or state != storedState:
-    #     response = make_response(redirect(url_for('#', error='state_mismatch')))
-    #     return response
-    # else:
-    # session.pop(stateKey, None)
-    # form = {
-    #     'code': code,
-    #     'redirect_uri': redirect_uri,Sc   
-    #     'grant_type': 'authorization_code'
-    # }
-    # auth_str = f'{client_id}:{client_secret}'
-    # headers = {
-    #     'Authorization': 'Basic '+str(base64.b64encode(bytes(auth_str,'utf-8')), "utf-8")
-    # }
-    # r = requests.post('https://accounts.spotify.com/api/token', data=form, headers=headers)
-    
-    # if r.status_code == 200:
-    #     print(r.json())
-    #     headers = {
-    #         'Authorization': 'Bearer ' + r.json()['access_token']
-    #     }
-    #     rme = requests.get('https://api.spotify.com/v1/me', headers=headers)
-    #     user = rme.json()
-
-    #     # r2 = requests.get('https://api.spotify.com/v1/me/playlists', headers=headers)
-    #     # playlists = r2.json()['items']
-    #     # for playlist in playlists:
-    #     #     track_list = get_tracks(playlist["id"], headers, track_list={})
-    #     #     track_list = get_track_features(track_list, headers)
-
-    #     #     playlist_item = {
-    #     #         '_id': playlist["id"],
-    #     #         'name': playlist["name"],
-    #     #         'owner': {
-    #     #             'id': user['id'],
-    #     #             'display_name': user['display_name'],
-    #     #             'email': user['email'],
-    #     #             'images': user['images']
-    #     #         },
-    #     #         'images': playlist['images'],
-    #     #         'tracks': list(track_list.values())
-    #     #     }
-
-    #     #     if col_playlist.find_one({ "_id": playlist["id"] }):
-    #     #         col_playlist.update_one({ "_id": playlist["id"] }, {'$set':playlist_item})
-    #     #     else:   
-    #     #         col_playlist.insert_one(playlist_item)
-
-    #     return jsonify(user)
 
 
 @app.route('/create_playlist')
@@ -151,6 +99,7 @@ def cluster_playlist():
     }
     track_list = get_tracks(request.json["id"], headers, track_list={})
     track_list = get_track_features(track_list, headers)
+    track_list = get_audio_feature(track_list, headers)
     track_data = list(track_list.values())
 
     track_df = pd.DataFrame(track_data)
@@ -160,17 +109,8 @@ def cluster_playlist():
     track_count = track_df.shape[0]
     n_clusters = math.ceil(track_count/40)
     
-    X = track_df.drop(["name","artist","key","mode","liveness","tempo","time_signature","duration_ms"], axis=1)
-    scaler = StandardScaler()
-    X_std = scaler.fit_transform(X)
-    km = KMeans(n_clusters=n_clusters, random_state=42)
-    km.fit(X_std)
-    track_df['cluster'] = km.labels_
-    playlists = {}
-    for playlist in track_df['cluster'].unique():
-        playlists[playlist] = {
-            'name': 'Cluster '+playlist
-        }
+    tone_X = track_df.drop(["name","artist","explicit","key","mode","time_signature","duration_ms","emotion","timbre"], axis=1)
+    
     return 'success'
 
 
@@ -226,6 +166,61 @@ def get_track_features(track_list, headers, iter_index=0):
         return get_track_features(track_list, headers, iter_index=iter_index)
     else:
         return track_list
+
+
+def get_audio_feature(track_list, headers):
+    for track in track_list:
+        rfeature = requests.get(f'https://api.spotify.com/v1/audio-analysis/{track["id"]}', headers=headers)
+        feature = rfeature.json()
+        if 'track' in feature:
+            afeature = feature['track']
+            segments = feature['segments']
+
+            duration = afeature['duration']
+            pitch_values = {'C': 0, 'C#':0, 'D':0, 'D#':0, 'E':0 , 'F':0, 'F#':0, 'G':0, 'G#':0, 'A':0, 'A#':0, 'B':0}
+            timbre_values = {'B1': 0, 'B2':0, 'B3':0, 'B4':0, 'B5':0 , 'B6':0, 'B7':0, 'B8':0, 'B9':0, 'B10':0, 'B11':0, 'B12':0}
+
+            for segment in segments:
+                seg_duration = segment['duration']
+                pitches = segment['pitches']
+                pitch_values['C'] += pitches[0] * seg_duration
+                pitch_values['C#'] += pitches[1] * seg_duration
+                pitch_values['D'] += pitches[2] * seg_duration
+                pitch_values['D#'] += pitches[3] * seg_duration
+                pitch_values['E'] += pitches[4] * seg_duration
+                pitch_values['F'] += pitches[5] * seg_duration
+                pitch_values['F#'] += pitches[6] * seg_duration
+                pitch_values['G'] += pitches[7] * seg_duration
+                pitch_values['G#'] += pitches[8] * seg_duration
+                pitch_values['A'] += pitches[9] * seg_duration
+                pitch_values['A#'] += pitches[10] * seg_duration
+                pitch_values['B'] += pitches[11] * seg_duration
+
+                timbres = segment['timbre']
+                timbre_values['B1'] += timbres[0] * seg_duration
+                timbre_values['B2'] += timbres[1] * seg_duration
+                timbre_values['B3'] += timbres[2] * seg_duration
+                timbre_values['B4'] += timbres[3] * seg_duration
+                timbre_values['B5'] += timbres[4] * seg_duration
+                timbre_values['B6'] += timbres[5] * seg_duration
+                timbre_values['B7'] += timbres[6] * seg_duration
+                timbre_values['B8'] += timbres[7] * seg_duration
+                timbre_values['B9'] += timbres[8] * seg_duration
+                timbre_values['B10'] += timbres[9] * seg_duration
+                timbre_values['B11'] += timbres[10] * seg_duration
+                timbre_values['B12'] += timbres[11] * seg_duration
+                
+
+            for note in pitch_values:
+                pitch_values[note] = pitch_values[note] / duration
+
+            for basis in timbre_values:
+                timbre_values[basis] = timbre_values[basis] / duration
+
+            track['timbre'] = timbre_values
+            track['pitches'] = pitch_values
+
+    return track_list
 
 
 def get_service_token():
