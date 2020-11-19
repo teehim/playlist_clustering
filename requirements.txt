@@ -1,0 +1,8 @@
+kmodes
+flask
+flask_cors
+scikit-learn
+pandas
+requests
+numpy
+gunicorn

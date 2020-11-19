@@ -3,6 +3,7 @@ import math
 import requests
 import base64
 import pandas as pd
+from kmodes.kmodes import KModes
 
 from flask import Flask, render_template, make_response, redirect, url_for, request, session, jsonify
 from urllib.parse import urlencode
@@ -81,9 +82,9 @@ def login():
     return jsonify(user)
 
 
-@app.route('/create_playlist')
+@app.route('/create_playlist', methods=['POST'])
 def create_playlist():
-    access_token = request.json['access_token']
+    access_token = request.json['token']
     headers = {
         'Authorization': 'Bearer ' + access_token
     }
@@ -100,26 +101,26 @@ def create_playlist():
         "uris": track_ids
     }
     res_tr = requests.post(f'https://api.spotify.com/v1/playlists/{pl_id}/tracks', json=track_data, headers=headers)
-    
+
     return jsonify(res_tr.json())
 
 
-@app.route('/cluster_playlist')
+@app.route('/cluster_playlist', methods=['POST'])
 def cluster_playlist():
-    access_token = request.json['access_token']
+    access_token = request.json['token']
     headers = {
         'Authorization': 'Bearer ' + access_token
     }
     track_list = get_tracks(request.json["id"], headers, track_list={})
+    track_list = get_track_data(track_list, headers)
     track_list = get_track_features(track_list, headers)
     # track_list = get_audio_feature(track_list, headers)
     track_data = list(track_list.values())
 
     track_df_master = pd.DataFrame(track_data)
-    track_df_master.set_index('_id', inplace=True)
+    track_df_master.set_index('id', inplace=True)
 
     track_df = track_df_master.copy()
-    track_df.set_index('id', inplace=True)
     track_df.drop("name", axis=1, inplace=True)
     track_df.drop("artist", axis=1, inplace=True)
     track_df.drop("explicit", axis=1, inplace=True)
@@ -176,7 +177,7 @@ def cluster_playlist():
 
     clustered_playlist = {}
     for i in range(n):
-        cluster = track_df[track_df['cluster']==i]
+        cluster = track_df[track_df['cluster']==i].copy()
         cluster['id'] = cluster.index
         cluster = pd.merge(cluster, track_df_master[['name','artist']], left_index=True, right_index=True, how='left')
         
@@ -195,10 +196,16 @@ def cluster_playlist():
 
         clustered_playlist[i] = {
             'name': season_playlist_name[tuple(sorted(season_char))] + " " + emotion_playlist_name[tuple(sorted(emotion_char))],
-            'tracks': cluster[['name','artist','season','emotion','id']].to_dict(orient='records')
+            'tracks': cluster[['name','artist','season','emotion','id']].to_dict(orient='records'),
+            'track_counts': size
         }
 
-    return jsonify({'playlist': clustered_playlist})
+        print(clustered_playlist[i]['name'])
+        print(season_rank)
+        print(emotion_rank)
+        print('='*20)
+
+    return jsonify({'playlists': list(clustered_playlist.values())})
 
 
 
@@ -221,6 +228,24 @@ def get_tracks(playlist_id, headers, next_url=None, track_list={}):
 
     if tracks['next']:
         return get_tracks(playlist_id, headers, next_url=tracks['next'], track_list=track_list)
+    else:
+        return track_list
+
+
+def get_track_data(track_list, headers, iter_index=0):
+    id_list = list(track_list.keys())
+    start_index = iter_index*50
+    end_index = (iter_index+1)*50 if (iter_index+1)*50 < len(id_list) else len(id_list)
+    req_id_list = id_list[start_index:end_index]
+
+    rdata = requests.get(f'https://api.spotify.com/v1/tracks/?ids={",".join(req_id_list)}', headers=headers)
+    data = rdata.json()
+    for track in data['tracks']:
+        track_list[track['id']]['release_date'] = track['album']['release_date']
+
+    if end_index != len(id_list):
+        iter_index += 1
+        return get_track_data(track_list, headers, iter_index=iter_index)
     else:
         return track_list
 
