@@ -1,6 +1,6 @@
 from flask import Flask, render_template, make_response, redirect, url_for, request, session, jsonify
 
-import random
+import pickle
 import math
 import requests
 from urllib.parse import urlencode
@@ -106,10 +106,12 @@ def cluster_playlist():
     track_df.set_index('id', inplace=True)
     track_df.drop("name", axis=1, inplace=True)
     track_df.drop("artist", axis=1, inplace=True)
-    track_count = track_df.shape[0]
-    n_clusters = math.ceil(track_count/40)
     
     tone_X = track_df.drop(["name","artist","explicit","key","mode","time_signature","duration_ms","emotion","timbre"], axis=1)
+    tone_model = pickle.load(open('tone.model','rb'))
+    track_df['tone'] = tone_model.predict(tone_X)
+
+    hot_tone_X = track_df[track_df['tone'] == 0]
     
     return 'success'
 
