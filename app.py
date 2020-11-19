@@ -1,16 +1,17 @@
-from flask import Flask, render_template, make_response, redirect, url_for, request, session, jsonify
-
 import pickle
 import math
 import requests
+import base64
+import pandas as pd
+
+from flask import Flask, render_template, make_response, redirect, url_for, request, session, jsonify
 from urllib.parse import urlencode
 from config import DefaultConfig
 from datetime import datetime, timedelta
 from flask_cors import CORS
-
-import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
+from kmodes.kmodes import KModes
 
 CONFIG = DefaultConfig()
 
@@ -24,7 +25,37 @@ redirect_uri = 'https://playlist-clustering.herokuapp.com'
 
 letters = 'abcdefghijklmnopqrstuvwxyz0123456789'
 stateKey = 'spotify_auth_state'
-import base64
+
+season_playlist_name = {
+    ('summer',): 'Summer',
+    ('spring',): 'Spring',
+    ('autumn',): 'Autumn',
+    ('winter',): 'Winter',
+    ('rainy',): 'Rainy',
+    ('spring','summer'): 'Sunny',
+    ('autumn','summer'): 'Vividly',
+    ('summer','winter'): 'Melty',
+    ('rainy','summer'): 'Sultry',
+    ('autumn','spring'): 'Peaceful',
+    ('spring','winter'): 'Snowy',
+    ('rainy','spring'): 'Cloudy',
+    ('autumn','winter'): 'Windy',
+    ('autumn','rainy'): 'Dampy',
+    ('rainy','winter'): 'Freezy'
+}
+
+emotion_playlist_name = {
+    ('happy',): 'Happiness',
+    ('chill',): 'Chill',
+    ('party',): 'Party',
+    ('sad',): 'Sadness',
+    ('chill','happy'): 'Comfort',
+    ('happy','party'): 'Fun',
+    ('happy','sad'): 'Confusion',
+    ('chill','party'): 'Rhythm',
+    ('party','sad'): 'Conflict',
+    ('chill','sad'): 'Melancholy'
+}
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -52,42 +83,24 @@ def login():
 
 @app.route('/create_playlist')
 def create_playlist():
-    # access_token = get_service_token()
+    access_token = request.json['access_token']
     headers = {
-        'Authorization': 'Bearer ' + 'BQC5jji4F0NmGb109bmhfAXZ8O7qR0u5BVz3_huawvti_Y4wQ1p_PQ5Q4zG0jtXuF0oN3tPkfrA8DGz4lL1hH-56Ih7SvvLa7F1FGGhrfefg7FeCnUBv22ScYe60lINu7GKnHV-M8JdUvV-i6Rrd_qR9bnLtFDUEMBIHiugi31RTSYjah4D4hDrPCnHt1GZCnLZ2Ms97ijs4I-j4EDWVYA'
+        'Authorization': 'Bearer ' + access_token
     }
-    track_ids = ['spotify:track:2LeLsYwDTlfvWfqgIbxvgG',
-       'spotify:track:0PACdf6vCQee3ICq02EWlf',
-       'spotify:track:5qcwzdhDQjHjmu12gOLjY0',
-       'spotify:track:3p7byaSR5J1he8vvDkxirp',
-       'spotify:track:0AqMAXSzkIRMV0alAddJK8',
-       'spotify:track:3TmMHzw7592o4bwtrSHeYv',
-       'spotify:track:4J3eFXXi2nQqF6MWLprnbR',
-       'spotify:track:2Fxmhks0bxGSBdJ92vM42m',
-       'spotify:track:6IRdLKIyS4p7XNiP8r6rsx',
-       'spotify:track:3Tc57t9l2O8FwQZtQOvPXK',
-       'spotify:track:218AUAkMEZWsVwjPxs80OI',
-       'spotify:track:2mosyIQjuejKlqSsdoI6q4',
-       'spotify:track:2ylVfK4pVfeSV4zxieyT2B',
-       'spotify:track:1ZI0AGxSFv2bW3STGNDhB7',
-       'spotify:track:19QNA6AoLPJvKcf4Oosg2z',
-       'spotify:track:2gmdr7WU3kSGRsDxv4tOqA',
-       'spotify:track:7vA7BaPdYpdJtt8zVJaqy8',
-       'spotify:track:58mtgcQVZ56NgWHKsN94nD']
+    track_ids = request.json["track_ids"]
+    track_ids = ['spotify:track:' + track_id for track_id in track_ids]
 
     track_uris = ','.join(track_ids)
     playlist_data = {
-        "name": "Bot Gen"
+        "name": request.json["name"]
     }
-    res_pl = requests.post(f'https://api.spotify.com/v1/users/21nrpmngofpue4bu35v3b7moq/playlists', json=playlist_data, headers=headers)
+    res_pl = requests.post(f'https://api.spotify.com/v1/users/{request.json["user_id"]}/playlists', json=playlist_data, headers=headers)
     pl_id = res_pl.json()['id']
-    print(pl_id)
-    print(track_uris)
     track_data = {
         "uris": track_ids
     }
     res_tr = requests.post(f'https://api.spotify.com/v1/playlists/{pl_id}/tracks', json=track_data, headers=headers)
-    print(res_tr.json())
+    
     return jsonify(res_tr.json())
 
 
@@ -99,21 +112,93 @@ def cluster_playlist():
     }
     track_list = get_tracks(request.json["id"], headers, track_list={})
     track_list = get_track_features(track_list, headers)
-    track_list = get_audio_feature(track_list, headers)
+    # track_list = get_audio_feature(track_list, headers)
     track_data = list(track_list.values())
 
-    track_df = pd.DataFrame(track_data)
+    track_df_master = pd.DataFrame(track_data)
+    track_df_master.set_index('_id', inplace=True)
+
+    track_df = track_df_master.copy()
     track_df.set_index('id', inplace=True)
     track_df.drop("name", axis=1, inplace=True)
     track_df.drop("artist", axis=1, inplace=True)
+    track_df.drop("explicit", axis=1, inplace=True)
+    track_df.drop("duration_ms", axis=1, inplace=True)
+    track_df.drop("time_signature", axis=1, inplace=True)
+    track_df.drop("mode", axis=1, inplace=True)
+    track_df.drop("key", axis=1, inplace=True)
+    track_df['release_date'] = pd.to_numeric(track_df['release_date'].str.split('-',expand=True)[1])
+    track_df["release_date"].fillna(track_df["release_date"].median(skipna=True), inplace=True)
     
-    tone_X = track_df.drop(["name","artist","explicit","key","mode","time_signature","duration_ms","emotion","timbre"], axis=1)
     tone_model = pickle.load(open('tone.model','rb'))
-    track_df['tone'] = tone_model.predict(tone_X)
+    tone_X = track_df.copy()
+    tone = tone_model.predict(tone_X)
+    track_df['tone'] = tone
+    hot_track = track_df[track_df['tone'] == 0]
+    cold_track = track_df[track_df['tone'] == 1]
 
-    hot_tone_X = track_df[track_df['tone'] == 0]
+    hot_track_X = hot_track.drop(['tone'], axis=1)
+    hot_model = pickle.load(open('spring_summer.model','rb'))
+    season = hot_model.predict(hot_track_X)
+    hot_track_X['season'] = season
+    hot_track_X['season'] = hot_track_X['season'].replace(0, 'spring')
+    hot_track_X['season'] = hot_track_X['season'].replace(1, 'summer')
+
+    cold_track_X = cold_track.drop(['tone'], axis=1)
+    cold_model = pickle.load(open('winter_autumn.model','rb'))
+    season = cold_model.predict(cold_track_X)
+    cold_track_X['season'] = season
+    cold_track_X['season'] = cold_track_X['season'].replace(0, 'autumn')
+    cold_track_X['season'] = cold_track_X['season'].replace(1, 'rainy')
+    cold_track_X['season'] = cold_track_X['season'].replace(2, 'winter')
+
+    season_sr = cold_track_X['season'].append(hot_track_X['season'])
+    track_df = pd.merge(track_df, season_sr, left_index=True, right_index=True, how='left')
+
+    emotion_model = pickle.load(open('emotion.model','rb'))
+    emotion_X = track_df.drop(['tone', 'season'], axis=1)
+    emotion = emotion_model.predict(emotion_X)
+    track_df['emotion'] = emotion
+    track_df['emotion'] = track_df['emotion'].replace(0, 'chill')
+    track_df['emotion'] = track_df['emotion'].replace(1, 'happy')
+    track_df['emotion'] = track_df['emotion'].replace(2, 'party')
+    track_df['emotion'] = track_df['emotion'].replace(3, 'sad')
+    track_df['emotion'].value_counts()
+
+    for n in range(20,1,-1):
+        km_cao = KModes(n_clusters=n, init = "Huang", n_init=10)
+        clusters = km_cao.fit_predict(track_df[['emotion','season']])
+        min_track_count = pd.Series(clusters).value_counts().min()
+        if min_track_count > 9:
+            break
     
-    return 'success'
+    track_df['cluster'] = clusters
+
+    clustered_playlist = {}
+    for i in range(n):
+        cluster = track_df[track_df['cluster']==i]
+        cluster['id'] = cluster.index
+        cluster = pd.merge(cluster, track_df_master[['name','artist']], left_index=True, right_index=True, how='left')
+        
+        season_char = None
+        emotion_char = None
+        season_rank = cluster['season'].value_counts().sort_values(ascending=False)
+        emotion_rank = cluster['emotion'].value_counts().sort_values(ascending=False)
+        size = cluster.shape[0]
+        season_char = (season_rank.index[0],)
+        if season_rank.size > 1 and (season_rank[1]/size) > (season_rank[0]/size/2):
+            season_char = (season_rank.index[0], season_rank.index[1])
+
+        emotion_char = (emotion_rank.index[0],)
+        if emotion_rank.size > 1 and (emotion_rank[1]/size) > (emotion_rank[0]/size/2):
+            emotion_char = (emotion_rank.index[0], emotion_rank.index[1])
+
+        clustered_playlist[i] = {
+            'name': season_playlist_name[tuple(sorted(season_char))] + " " + emotion_playlist_name[tuple(sorted(emotion_char))],
+            'tracks': cluster[['name','artist','season','emotion','id']].to_dict(orient='records')
+        }
+
+    return jsonify({'playlist': clustered_playlist})
 
 
 
@@ -171,8 +256,9 @@ def get_track_features(track_list, headers, iter_index=0):
 
 
 def get_audio_feature(track_list, headers):
-    for track in track_list:
-        rfeature = requests.get(f'https://api.spotify.com/v1/audio-analysis/{track["id"]}', headers=headers)
+    for track_id in track_list:
+        track = track_list[track_id]
+        rfeature = requests.get(f'https://api.spotify.com/v1/audio-analysis/{track_id}', headers=headers)
         feature = rfeature.json()
         if 'track' in feature:
             afeature = feature['track']
