@@ -223,7 +223,7 @@ def get_user_playlist(headers, playlist_items=[], next_url=None):
         })
 
     if rplaylists.json()['next']:
-        return get_user_playlist(headers, next_url=rplaylists.json()['next'], track_list=playlist_items)
+        return get_user_playlist(headers, next_url=rplaylists.json()['next'], playlist_items=playlist_items)
     else:
         return playlist_items
 
