@@ -109,7 +109,6 @@ def create_playlist():
 
 @app.route('/cluster_playlist', methods=['POST'])
 def cluster_playlist():
-    print('1',datetime.now())
     access_token = request.json['token']
     headers = {
         'Authorization': 'Bearer ' + access_token
@@ -134,7 +133,6 @@ def cluster_playlist():
     track_df['release_date'] = pd.to_numeric(track_df['release_date'].str.split('-',expand=True)[1])
     track_df["release_date"].fillna(track_df["release_date"].median(skipna=True), inplace=True)
     
-    print('2',datetime.now())
     tone_model = pickle.load(open('tone.model','rb'))
     tone_X = track_df.copy()
     tone = tone_model.predict(tone_X)
@@ -159,7 +157,6 @@ def cluster_playlist():
 
     season_sr = cold_track_X['season'].append(hot_track_X['season'])
     track_df = pd.merge(track_df, season_sr, left_index=True, right_index=True, how='left')
-    print('3',datetime.now())
 
     emotion_model = pickle.load(open('emotion.model','rb'))
     emotion_X = track_df.drop(['tone', 'season'], axis=1)
@@ -171,12 +168,18 @@ def cluster_playlist():
     track_df['emotion'] = track_df['emotion'].replace(3, 'sad')
     track_df['emotion'].value_counts()
     print('4',datetime.now())
-    for n in range(15,1,-1):
+
+    n = 20
+    while n > 1:
         km_cao = KModes(n_clusters=n, init = "Huang", n_init=15)
         clusters = km_cao.fit_predict(track_df[['emotion','season']])
-        min_track_count = pd.Series(clusters).value_counts().min()
+        track_count = pd.Series(clusters).value_counts()
+        min_track_count = track_count.min()
+        single_digit_count = track_count[track_count < 10].size
         if min_track_count > 9:
             break
+        dec = math.ceil(single_digit_count/2)
+        n -= dec if (dec > 0) and (n - dec > 1) else 1
     
     track_df['cluster'] = clusters
 
@@ -229,8 +232,6 @@ def cluster_playlist():
             'tracks': cluster[['name','artist','season','emotion','id']].to_dict(orient='records'),
             'track_counts': size
         }
-
-    print('6',datetime.now())
 
     return jsonify({'playlists': list(clustered_playlist.values())})
 
