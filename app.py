@@ -194,6 +194,10 @@ def cluster_playlist():
         emotion_char = None
         season_rank = cluster['season'].value_counts().sort_values(ascending=False)
         emotion_rank = cluster['emotion'].value_counts().sort_values(ascending=False)
+
+        cluster['emo_sort'] = cluster['emotion'].apply(lambda x: emotion_rank[x])
+        cluster.sort_values(by='emo_sort', ascending=False, inplace=True)
+
         size = cluster.shape[0]
         season_char = (season_rank.index[0],)
         if season_rank.size > 1 and (season_rank[1]/size) > (season_rank[0]/size/2):
