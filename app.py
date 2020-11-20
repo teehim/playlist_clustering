@@ -13,6 +13,8 @@ from flask_cors import CORS
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
+from datetime import datetime
+
 CONFIG = DefaultConfig()
 
 app = Flask(__name__)
@@ -107,6 +109,7 @@ def create_playlist():
 
 @app.route('/cluster_playlist', methods=['POST'])
 def cluster_playlist():
+    print('1',datetime.now())
     access_token = request.json['token']
     headers = {
         'Authorization': 'Bearer ' + access_token
@@ -131,6 +134,7 @@ def cluster_playlist():
     track_df['release_date'] = pd.to_numeric(track_df['release_date'].str.split('-',expand=True)[1])
     track_df["release_date"].fillna(track_df["release_date"].median(skipna=True), inplace=True)
     
+    print('2',datetime.now())
     tone_model = pickle.load(open('tone.model','rb'))
     tone_X = track_df.copy()
     tone = tone_model.predict(tone_X)
@@ -155,6 +159,7 @@ def cluster_playlist():
 
     season_sr = cold_track_X['season'].append(hot_track_X['season'])
     track_df = pd.merge(track_df, season_sr, left_index=True, right_index=True, how='left')
+    print('3',datetime.now())
 
     emotion_model = pickle.load(open('emotion.model','rb'))
     emotion_X = track_df.drop(['tone', 'season'], axis=1)
@@ -165,7 +170,7 @@ def cluster_playlist():
     track_df['emotion'] = track_df['emotion'].replace(2, 'party')
     track_df['emotion'] = track_df['emotion'].replace(3, 'sad')
     track_df['emotion'].value_counts()
-
+    print('4',datetime.now())
     for n in range(20,1,-1):
         km_cao = KModes(n_clusters=n, init = "Huang", n_init=10)
         clusters = km_cao.fit_predict(track_df[['emotion','season']])
@@ -175,6 +180,7 @@ def cluster_playlist():
     
     track_df['cluster'] = clusters
 
+    print('5',datetime.now())
     clustered_playlist = {}
     for i in range(n):
         cluster = track_df[track_df['cluster']==i].copy()
@@ -223,6 +229,8 @@ def cluster_playlist():
             'tracks': cluster[['name','artist','season','emotion','id']].to_dict(orient='records'),
             'track_counts': size
         }
+
+    print('6',datetime.now())
 
     return jsonify({'playlists': list(clustered_playlist.values())})
 
