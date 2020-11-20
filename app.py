@@ -12,7 +12,6 @@ from datetime import datetime, timedelta
 from flask_cors import CORS
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
-from kmodes.kmodes import KModes
 
 CONFIG = DefaultConfig()
 
@@ -66,18 +65,19 @@ def login():
     }
     rme = requests.get('https://api.spotify.com/v1/me', headers=headers)
     user = rme.json()
-    rplaylists = requests.get('https://api.spotify.com/v1/me/playlists?limit=50', headers=headers)
-    playlists = rplaylists.json()['items']
-    playlist_items = []
-    for playlist in playlists:
-        playlist_items.append({
-            'id': playlist["id"],
-            'name': playlist["name"],
-            'images': playlist["images"],
-            'track_counts': playlist['tracks']['total']
-        })
+    # rplaylists = requests.get('https://api.spotify.com/v1/me/playlists?limit=50', headers=headers)
+    # playlists = rplaylists.json()['items']
+    # playlist_items = []
+    # print(playlists)
+    # for playlist in playlists:
+    #     playlist_items.append({
+    #         'id': playlist["id"],
+    #         'name': playlist["name"],
+    #         'images': playlist["images"],
+    #         'track_counts': playlist['tracks']['total']
+    #     })
 
-    user['playlists'] = playlist_items
+    user['playlists'] = get_user_playlist(headers, playlist_items=[])
 
     return jsonify(user)
 
@@ -206,6 +206,26 @@ def cluster_playlist():
         print('='*20)
 
     return jsonify({'playlists': list(clustered_playlist.values())})
+
+
+def get_user_playlist(headers, playlist_items=[], next_url=None):
+    if next_url:
+        rplaylists = requests.get(next_url, headers=headers)
+    else:
+        rplaylists = requests.get('https://api.spotify.com/v1/me/playlists', headers=headers)
+    playlists = rplaylists.json()['items']
+    for playlist in playlists:
+        playlist_items.append({
+            'id': playlist["id"],
+            'name': playlist["name"],
+            'images': playlist["images"],
+            'track_counts': playlist['tracks']['total']
+        })
+
+    if rplaylists.json()['next']:
+        return get_user_playlist(headers, next_url=rplaylists.json()['next'], track_list=playlist_items)
+    else:
+        return playlist_items
 
 
 def get_tracks(playlist_id, headers, next_url=None, track_list={}):
