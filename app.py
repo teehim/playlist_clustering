@@ -171,7 +171,7 @@ def cluster_playlist():
     track_df['emotion'] = track_df['emotion'].replace(3, 'sad')
     track_df['emotion'].value_counts()
     print('4',datetime.now())
-    for n in range(15,1,-1):
+    for n in range(20,1,-1):
         km_cao = KModes(n_clusters=n, init = "Huang", n_init=5)
         clusters = km_cao.fit_predict(track_df[['emotion','season']])
         min_track_count = pd.Series(clusters).value_counts().min()
