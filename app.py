@@ -66,7 +66,7 @@ def login():
     }
     rme = requests.get('https://api.spotify.com/v1/me', headers=headers)
     user = rme.json()
-    rplaylists = requests.get('https://api.spotify.com/v1/me/playlists', headers=headers)
+    rplaylists = requests.get('https://api.spotify.com/v1/me/playlists?limit=50', headers=headers)
     playlists = rplaylists.json()['items']
     playlist_items = []
     for playlist in playlists:
@@ -206,7 +206,6 @@ def cluster_playlist():
         print('='*20)
 
     return jsonify({'playlists': list(clustered_playlist.values())})
-
 
 
 def get_tracks(playlist_id, headers, next_url=None, track_list={}):
