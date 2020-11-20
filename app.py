@@ -190,6 +190,30 @@ def cluster_playlist():
         if season_rank.size > 1 and (season_rank[1]/size) > (season_rank[0]/size/2):
             season_char = (season_rank.index[0], season_rank.index[1])
 
+        if emotion_rank.index[0] in ['happy', 'party']:
+            if 'sad' in emotion_rank.index:
+                if emotion_rank['sad'] > 9:
+                    clustered_playlist['s'+i] = {
+                        'name': season_playlist_name[tuple(sorted(season_char))] + " " + emotion_playlist_name[tuple(sorted(('sad')))],
+                        'tracks': cluster[cluster['emotion'] == 'sad'][['name','artist','season','emotion','id']].to_dict(orient='records')
+                    }
+                cluster = cluster.drop(cluster[cluster['emotion'] == 'sad'].index)
+        elif emotion_rank.index[0] == 'sad':
+            if 'party' in emotion_rank.index:
+                if emotion_rank['party'] > 9:
+                    clustered_playlist['p'+i] = {
+                        'name': season_playlist_name[tuple(sorted(season_char))] + " " + emotion_playlist_name[tuple(sorted(('party')))],
+                        'tracks': cluster[cluster['emotion'] == 'party'][['name','artist','season','emotion','id']].to_dict(orient='records')
+                    }
+                cluster = cluster.drop(cluster[cluster['emotion'] == 'party'].index)
+            if 'happy' in emotion_rank.index:
+                if emotion_rank['happy'] > 9:
+                    clustered_playlist['h'+i] = {
+                        'name': season_playlist_name[tuple(sorted(season_char))] + " " + emotion_playlist_name[tuple(sorted(('happy')))],
+                        'tracks': cluster[cluster['emotion'] == 'happy'][['name','artist','season','emotion','id']].to_dict(orient='records')
+                    }
+                cluster = cluster.drop(cluster[cluster['emotion'] == 'happy'].index)
+
         emotion_char = (emotion_rank.index[0],)
         if emotion_rank.size > 1 and (emotion_rank[1]/size) > (emotion_rank[0]/size/2):
             emotion_char = (emotion_rank.index[0], emotion_rank.index[1])
@@ -199,11 +223,6 @@ def cluster_playlist():
             'tracks': cluster[['name','artist','season','emotion','id']].to_dict(orient='records'),
             'track_counts': size
         }
-
-        print(clustered_playlist[i]['name'])
-        print(season_rank)
-        print(emotion_rank)
-        print('='*20)
 
     return jsonify({'playlists': list(clustered_playlist.values())})
 
